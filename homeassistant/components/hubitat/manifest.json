@@ -1,0 +1,14 @@
+{
+  "domain": "hubitat",
+  "name": "Hubitat",
+  "config_flow": true,
+  "documentation": "https://www.home-assistant.io/integrations/hubitat",
+  "requirements": ["beautifulsoup4==4.8.2"],
+  "ssdp": [],
+  "zeroconf": [],
+  "homekit": {},
+  "dependencies": [],
+  "codeowners": [
+    "@jason0x43"
+  ]
+}
