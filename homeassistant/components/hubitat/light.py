@@ -39,8 +39,7 @@ async def async_setup_entry(
 ):
     """Initialize light devices."""
     hub: HubitatHub = hass.data[DOMAIN][entry.entry_id].hub
-    _LOGGER.debug(f"Checking for lights in {hub.devices}")
-    lights = [HubitatLight(hub, d) for d in hub.devices.values() if _is_light(d)]
+    lights = [HubitatLight(hub, d) for d in hub.devices if _is_light(d)]
     async_add_entities(lights)
     _LOGGER.debug(f"Added entities for lights: {lights}")
 

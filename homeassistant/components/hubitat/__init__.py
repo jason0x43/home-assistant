@@ -11,6 +11,7 @@ from homeassistant.components.webhook import async_generate_url
 from homeassistant.config_entries import SOURCE_IMPORT, ConfigEntry
 from homeassistant.const import CONF_ACCESS_TOKEN, CONF_HOST, CONF_WEBHOOK_ID
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import device_registry
 
 from .const import CONF_APP_ID, DOMAIN, EVENT_DEVICE
 from .hubitat import HubitatHub
@@ -55,6 +56,17 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
         hass.data[DOMAIN] = {}
 
     hass.data[DOMAIN][entry.entry_id] = manager
+
+    dreg = await device_registry.async_get_registry(hass)
+    dreg.async_get_or_create(
+        config_entry_id=entry.entry_id,
+        connections={(device_registry.CONNECTION_NETWORK_MAC, hub.mac)},
+        identifiers={(DOMAIN, hub.id)},
+        manufacturer="Hubitat",
+        name=hub.name,
+        model=hub.hw_version,
+        sw_version=hub.sw_version,
+    )
 
     for component in PLATFORMS:
         hass.async_create_task(

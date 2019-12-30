@@ -83,9 +83,9 @@ class HubitatHub:
         self.app_id = app_id
         self.token = access_token
         self.api = f"http://{host}/apps/api/{app_id}"
-        self.devices: Dict[str, Dict[str, Any]] = {}
-        self.info: Dict[str, str] = {}
 
+        self._devices: Dict[str, Dict[str, Any]] = {}
+        self._info: Dict[str, str] = {}
         self._listeners: Dict[str, List[Listener]] = {}
 
         _LOGGER.debug(f"Created hub pointing to {self.api}")
@@ -97,8 +97,41 @@ class HubitatHub:
     @property
     def id(self):
         """Return the ID of this hub."""
-        if len(self.info) > 0:
-            return self.info["id"]
+        if len(self._info) > 0:
+            return self._info["id"]
+        return None
+
+    @property
+    def name(self):
+        """Return the device name for hub."""
+        return "Hubitat Elevation"
+
+    @property
+    def hw_version(self):
+        """Return the hub's hardware version."""
+        if len(self._info) > 0:
+            return self._info["hw_version"]
+        return None
+
+    @property
+    def sw_version(self):
+        """Return the hub's software version."""
+        if len(self._info) > 0:
+            return self._info["sw_version"]
+        return None
+
+    @property
+    def mac(self):
+        """Return the MAC address of this hub."""
+        if len(self._info) > 0:
+            return self._info["mac"]
+        return None
+
+    @property
+    def devices(self):
+        """Return the devices managed by this hub."""
+        if len(self._devices) > 0:
+            return self._devices.values()
         return None
 
     def add_device_listener(self, device_id: str, listener: Listener):
@@ -150,7 +183,7 @@ class HubitatHub:
 
     def get_device_attribute(self, device_id: str, attr_name: str) -> Dict[str, Any]:
         """Get an attribute value for a specific device."""
-        state = self.devices[device_id]
+        state = self._devices[device_id]
         for attr in state["attributes"]:
             if attr["name"] == attr_name:
                 return attr
@@ -175,7 +208,7 @@ class HubitatHub:
     ):
         """Update a device attribute value."""
         _LOGGER.debug(f"Updating {attr_name} of {device_id} to {value}")
-        state = self.devices[device_id]
+        state = self._devices[device_id]
         for attr in state["attributes"]:
             if attr["name"] == attr_name:
                 attr["currentValue"] = value
@@ -195,15 +228,15 @@ class HubitatHub:
             try:
                 soup = BeautifulSoup(text, "html.parser")
                 section = soup.find("h2", string="Hub Details")
-                self.info = _parse_details(section)
-                _LOGGER.debug(f"Loaded hub info: {self.info}")
+                self._info = _parse_details(section)
+                _LOGGER.debug(f"Loaded hub info: {self._info}")
             except Exception as e:
                 _LOGGER.error(f"Error parsing hub info: {e}")
                 raise InvalidInfo()
 
     async def _load_devices(self, force_refresh=False):
         """Load the current state of all devices."""
-        if force_refresh or len(self.devices) == 0:
+        if force_refresh or len(self._devices) == 0:
             json = await self._api_request("devices")
             try:
                 devices = DEVICES_SCHEMA(json)
@@ -256,11 +289,11 @@ class HubitatHub:
         ]
         """
 
-        if force_refresh or device_id not in self.devices:
+        if force_refresh or device_id not in self._devices:
             _LOGGER.debug(f"Loading device {device_id}")
             json = await self._api_request(f"devices/{device_id}")
             try:
-                self.devices[device_id] = DEVICE_INFO_SCHEMA(json)
+                self._devices[device_id] = DEVICE_INFO_SCHEMA(json)
             except Exception as e:
                 _LOGGER.error(f"Invalid device info: {json}")
                 raise e
