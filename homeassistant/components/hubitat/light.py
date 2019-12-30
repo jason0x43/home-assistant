@@ -99,6 +99,17 @@ class HubitatLight(HubitatDevice, Light):
 
         return features
 
+    @property
+    def device_info(self):
+        """Return the device info."""
+        return {
+            "identifiers": {(DOMAIN, self.device_id)},
+            "name": self.name,
+            "manufacturer": "Hubitat",
+            "model": self.type,
+            "via_device": (DOMAIN, self._hub.id),
+        }
+
     def supports_feature(self, feature):
         """Return True if light supports a given feature."""
         return self.supported_features & feature != 0
