@@ -1,21 +1,33 @@
 """Hubitat API."""
 from asyncio import gather
-from enum import Enum
 from logging import getLogger
 from typing import Any, Callable, Dict, List, Optional, Union
+from urllib.parse import quote
 
-from aiohttp import ClientTimeout, request
+from aiohttp import ClientError, ClientResponse, ClientTimeout, request
 from bs4 import BeautifulSoup
 import voluptuous as vol
 
 _LOGGER = getLogger(__name__)
 
-
 Listener = Callable[[], None]
 
-DEVICE_TYPE = Enum("DeviceType", "DIMMER SWITCH SENSOR")
+CAPABILITY_SWITCH_LEVEL = "SwitchLevel"
+CAPABILITY_SWITCH = "Switch"
+CAPABILITY_COLOR_CONTROL = "ColorControl"
+CAPABILITY_COLOR_TEMP = "ColorTemperature"
+
+COMMAND_ON = "on"
+COMMAND_OFF = "off"
+COMMAND_SET_COLOR = "setColor"
+COMMAND_SET_COLOR_TEMP = "setColorTemperature"
+COMMAND_SET_LEVEL = "setLevel"
+COMMAND_SET_HUE = "setHue"
+COMMAND_SET_SAT = "setSaturation"
 
 DEVICE_SCHEMA = vol.Schema({"id": str, "name": str, "label": str}, required=True)
+
+DEVICES_SCHEMA = vol.Schema([DEVICE_SCHEMA])
 
 ATTRIBUTE_SCHEMA = vol.Schema(
     {
@@ -53,6 +65,11 @@ COMMANDS_SCHEMA = vol.Schema([COMMAND_SCHEMA])
 class HubitatHub:
     """A representation of a Hubitat hub."""
 
+    api: str
+    app_id: str
+    host: str
+    token: str
+
     def __init__(self, host: str, app_id: str, access_token: str):
         """Initialize a Hubitat hub connector."""
         if not host:
@@ -65,14 +82,41 @@ class HubitatHub:
         self.host = host
         self.app_id = app_id
         self.token = access_token
-
         self.api = f"http://{host}/apps/api/{app_id}"
-        self.devices: Dict[str, Any]
-        self.info: Dict[str, str]
+        self.devices: Dict[str, Dict[str, Any]] = {}
+        self.info: Dict[str, str] = {}
 
-        self.listeners: Dict[str, List[Listener]] = {}
+        self._listeners: Dict[str, List[Listener]] = {}
 
-        _LOGGER.info(f"Created hub pointing to {self.api}")
+        _LOGGER.debug(f"Created hub pointing to {self.api}")
+
+    def __repr__(self):
+        """Return a string representation of this hub."""
+        return f"<HubitatHub host={self.host} app_id={self.app_id}>"
+
+    @property
+    def id(self):
+        """Return the ID of this hub."""
+        if len(self.info) > 0:
+            return self.info["id"]
+        return None
+
+    def add_device_listener(self, device_id: str, listener: Listener):
+        """Listen for updates for a device."""
+        if device_id not in self._listeners:
+            self._listeners[device_id] = []
+        self._listeners[device_id].append(listener)
+
+    def remove_device_listeners(self, device_id: str):
+        """Remove all listeners for a device."""
+        self._listeners[device_id] = []
+
+    async def check_config(self):
+        """Verify that the hub is accessible."""
+        try:
+            await gather(self._load_info(), self._check_api())
+        except ClientError as e:
+            raise ConnectionError(str(e))
 
     async def connect(self):
         """
@@ -81,25 +125,30 @@ class HubitatHub:
         Hub and device data will not be available until this method has
         completed
         """
-        await gather(self._load_info(), self._load_devices())
+        try:
+            await gather(self._load_info(), self._load_devices())
+            _LOGGER.debug(f"Connected to Hubitat hub at {self.host}")
+        except ClientError as e:
+            raise ConnectionError(str(e))
 
     def update_state(self, event: Dict[str, Any]):
-        """Update the hub's state with an event received from the hub."""
-        pass
+        """Update a device state with an event received from the hub."""
+        device_id = event["deviceId"]
+        self._update_device_attr(device_id, event["name"], event["value"])
+        if device_id in self._listeners:
+            for listener in self._listeners[device_id]:
+                listener()
 
     async def send_command(
         self, device_id: str, command: str, arg: Optional[Union[str, int]]
     ):
         """Send a device command to the hub."""
-        url = f"http://{self.api}/devices/{device_id}/{command}"
+        path = f"devices/{device_id}/{command}"
         if arg:
-            url += f"/{arg}"
-        async with request("GET", url) as resp:
-            return await resp.text()
+            path += f"/{arg}"
+        await self._api_request(path)
 
-    async def get_device_attribute(
-        self, device_id: str, attr_name: str
-    ) -> Dict[str, Any]:
+    def get_device_attribute(self, device_id: str, attr_name: str) -> Dict[str, Any]:
         """Get an attribute value for a specific device."""
         state = self.devices[device_id]
         for attr in state["attributes"]:
@@ -109,12 +158,29 @@ class HubitatHub:
 
     async def set_event_url(self, event_url: str):
         """Set the URL that Hubitat will POST events to."""
-        params = {"access_token": self.token}
         _LOGGER.info(f"Posting update to {self.api}/postURL/{event_url}")
-        async with request(
-            "POST", f"{self.api}/postURL/{event_url}", params=params
-        ) as resp:
-            return await resp.json()
+        url = quote(event_url, safe="")
+        await self._api_request(f"postURL/{url}")
+
+    async def refresh_device(self, device_id: str):
+        """Refresh a device's state."""
+        await self._load_device(device_id, force_refresh=True)
+
+    async def _check_api(self):
+        """Check for api access."""
+        await self._api_request("devices")
+
+    def _update_device_attr(
+        self, device_id: str, attr_name: str, value: Union[int, str]
+    ):
+        """Update a device attribute value."""
+        _LOGGER.debug(f"Updating {attr_name} of {device_id} to {value}")
+        state = self.devices[device_id]
+        for attr in state["attributes"]:
+            if attr["name"] == attr_name:
+                attr["currentValue"] = value
+                return
+        raise InvalidAttribute
 
     async def _load_info(self):
         """Load general info about the hub."""
@@ -122,23 +188,34 @@ class HubitatHub:
         _LOGGER.info(f"Getting hub info from {url}...")
         timeout = ClientTimeout(total=10)
         async with request("GET", url, timeout=timeout) as resp:
+            if resp.status >= 400:
+                raise RequestError(resp)
+
             text = await resp.text()
-            soup = BeautifulSoup(text, "html.parser")
-            section = soup.find("h2", string="Hub Details")
-            self.info = _parse_details(section)
-            _LOGGER.debug(f"Hub info: {self.devices}")
+            try:
+                soup = BeautifulSoup(text, "html.parser")
+                section = soup.find("h2", string="Hub Details")
+                self.info = _parse_details(section)
+                _LOGGER.debug(f"Loaded hub info: {self.info}")
+            except Exception as e:
+                _LOGGER.error(f"Error parsing hub info: {e}")
+                raise InvalidInfo()
 
     async def _load_devices(self, force_refresh=False):
         """Load the current state of all devices."""
         if force_refresh or len(self.devices) == 0:
-            params = {"access_token": self.token}
-            async with request("GET", f"{self.api}/devices", params=params) as resp:
-                devices = DEVICE_SCHEMA(await resp.json())
+            json = await self._api_request("devices")
+            try:
+                devices = DEVICES_SCHEMA(json)
+                _LOGGER.debug(f"Loaded device list")
+            except Exception as e:
+                _LOGGER.error(f"Invalid response: {json}")
+                raise e
 
             # load devices sequentially to avoid overloading the hub
             for dev in devices:
-                state = await self._load_device(dev["id"], force_refresh)
-                self.devices[dev["id"]] = state
+                await self._load_device(dev["id"], force_refresh)
+                _LOGGER.debug(f"Loaded device {dev['id']}")
 
     async def _load_device(self, device_id: str, force_refresh=False):
         """
@@ -178,13 +255,29 @@ class HubitatHub:
             ]
         ]
         """
+
         if force_refresh or device_id not in self.devices:
-            params = {"access_token": self.token}
-            async with request(
-                "GET", f"{self.api}/devices/{device_id}", params=params
-            ) as resp:
-                self.devices[device_id] = DEVICE_INFO_SCHEMA(await resp.json())
-        return self.devices[device_id]
+            _LOGGER.debug(f"Loading device {device_id}")
+            json = await self._api_request(f"devices/{device_id}")
+            try:
+                self.devices[device_id] = DEVICE_INFO_SCHEMA(json)
+            except Exception as e:
+                _LOGGER.error(f"Invalid device info: {json}")
+                raise e
+            _LOGGER.debug(f"Loaded device {device_id}")
+
+    async def _api_request(self, path: str, method="GET"):
+        params = {"access_token": self.token}
+        async with request(method, f"{self.api}/{path}", params=params) as resp:
+            if resp.status >= 400:
+                if resp.status == 401:
+                    raise InvalidToken()
+                else:
+                    raise RequestError(resp)
+            json = await resp.json()
+            if "error" in json and json["error"]:
+                raise RequestError(resp)
+            return json
 
 
 _DETAILS_MAPPING = {
@@ -209,13 +302,31 @@ def _parse_details(tag):
     return details
 
 
-class InvalidConfig(Exception):
-    """An error indicating invalid hub config data."""
+class ConnectionError(Exception):
+    """Error when hub isn't responding."""
 
-    pass
+
+class InvalidToken(Exception):
+    """Error for invalid access token."""
+
+
+class InvalidConfig(Exception):
+    """Error indicating invalid hub config data."""
 
 
 class InvalidAttribute(Exception):
-    """An error indicating an invalid device attribute."""
+    """Error indicating an invalid device attribute."""
 
-    pass
+
+class InvalidInfo(Exception):
+    """Error indicating that the hub returned invalid general info."""
+
+
+class RequestError(Exception):
+    """An error indicating that a request failed."""
+
+    def __init__(self, resp: ClientResponse, **kwargs):
+        """Initialize a request error."""
+        super().__init__(
+            f"{resp.method} {resp.url} - [{resp.status}] {resp.reason}", **kwargs,
+        )

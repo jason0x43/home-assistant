@@ -3,19 +3,24 @@
     "title": "Hubitat",
     "step": {
       "user": {
-        "title": "Connect to the device",
+        "title": "Connect to the hub",
         "data": {
-          "host": "Host"
+          "host": "Hub address",
+          "app_id": "Maker API app ID",
+          "access_token": "Maker API access token"
         }
       }
     },
     "error": {
       "cannot_connect": "Failed to connect, please try again",
-      "invalid_auth": "Invalid authentication",
+      "invalid_access_token": "Access token is invalid",
+      "invalid_hub_info": "Could not parse hub details",
+      "invalid_hub_config": "Invalid hub config",
+      "request_error": "Error communicating with the hub",
       "unknown": "Unexpected error"
     },
     "abort": {
-      "already_configured": "Device is already configured"
+      "already_configured": "Hub is already configured"
     }
   }
 }
