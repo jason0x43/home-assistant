@@ -13,14 +13,14 @@ from homeassistant.const import CONF_ACCESS_TOKEN, CONF_HOST, CONF_WEBHOOK_ID
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import device_registry
 
-from .const import CONF_APP_ID, DOMAIN, EVENT_DEVICE
+from .const import CONF_APP_ID, DOMAIN
 from .hubitat import HubitatHub
 
 _LOGGER = getLogger(__name__)
 
 CONFIG_SCHEMA = vol.Schema({DOMAIN: vol.Schema({})}, extra=vol.ALLOW_EXTRA)
 
-PLATFORMS = ["light"]
+PLATFORMS = ["light", "sensor", "binary_sensor"]
 
 
 async def async_setup(hass: HomeAssistant, config: dict):
@@ -145,14 +145,12 @@ async def handle_event(hass: HomeAssistant, webhook_id: str, request: Request):
         # Ignore upnp events
         return
 
-    _LOGGER.debug(f"Received event {event}")
-
-    # Tell everyone else about the event
-    hass.bus.async_fire(EVENT_DEVICE, event)
-
     hub = _get_hub_for_webhook(hass, webhook_id)
+    _LOGGER.info(
+        f"Received event from {hub} for for {event['displayName']} ({event['deviceId']}) - {event['name']} -> {event['value']}"
+    )
+
     if hub:
-        _LOGGER.debug(f"Sending event to hub {hub}")
         hub.update_state(event)
 
 

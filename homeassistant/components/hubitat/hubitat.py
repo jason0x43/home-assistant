@@ -12,18 +12,27 @@ _LOGGER = getLogger(__name__)
 
 Listener = Callable[[], None]
 
-CAPABILITY_SWITCH_LEVEL = "SwitchLevel"
-CAPABILITY_SWITCH = "Switch"
-CAPABILITY_COLOR_CONTROL = "ColorControl"
-CAPABILITY_COLOR_TEMP = "ColorTemperature"
+CAP_COLOR_CONTROL = "ColorControl"
+CAP_COLOR_TEMP = "ColorTemperature"
+CAP_SWITCH = "Switch"
+CAP_SWITCH_LEVEL = "SwitchLevel"
 
-COMMAND_ON = "on"
-COMMAND_OFF = "off"
-COMMAND_SET_COLOR = "setColor"
-COMMAND_SET_COLOR_TEMP = "setColorTemperature"
-COMMAND_SET_LEVEL = "setLevel"
-COMMAND_SET_HUE = "setHue"
-COMMAND_SET_SAT = "setSaturation"
+ATTR_ACCELERATION = "acceleration"
+ATTR_BATTERY = "battery"
+ATTR_CONTACT = "contact"
+ATTR_HUMIDITY = "humidity"
+ATTR_ILLUMINANCE = "illuminance"
+ATTR_MOTION = "motion"
+ATTR_TEMPERATURE = "temperature"
+ATTR_UV = "ultravioletIndex"
+
+CMD_OFF = "off"
+CMD_ON = "on"
+CMD_SET_COLOR = "setColor"
+CMD_SET_COLOR_TEMP = "setColorTemperature"
+CMD_SET_HUE = "setHue"
+CMD_SET_LEVEL = "setLevel"
+CMD_SET_SAT = "setSaturation"
 
 DEVICE_SCHEMA = vol.Schema({"id": str, "name": str, "label": str}, required=True)
 
@@ -33,7 +42,7 @@ ATTRIBUTE_SCHEMA = vol.Schema(
     {
         "name": str,
         "dataType": vol.Any(str, None),
-        vol.Optional("currentValue"): vol.Any(str, int),
+        vol.Optional("currentValue"): vol.Any(str, int, float),
         vol.Optional("values"): vol.Any([str], [int]),
     },
     required=True,
@@ -88,7 +97,7 @@ class HubitatHub:
         self._info: Dict[str, str] = {}
         self._listeners: Dict[str, List[Listener]] = {}
 
-        _LOGGER.debug(f"Created hub pointing to {self.api}")
+        _LOGGER.debug(f"Created hub {self}")
 
     def __repr__(self):
         """Return a string representation of this hub."""
@@ -144,6 +153,14 @@ class HubitatHub:
         """Remove all listeners for a device."""
         self._listeners[device_id] = []
 
+    def device_has_attribute(self, device_id: str, attr: str):
+        """Return True if the given device device has the given attribute."""
+        try:
+            self.get_device_attribute(device_id, attr)
+            return True
+        except Exception:
+            return False
+
     async def check_config(self):
         """Verify that the hub is accessible."""
         try:
@@ -187,7 +204,7 @@ class HubitatHub:
         for attr in state["attributes"]:
             if attr["name"] == attr_name:
                 return attr
-        raise InvalidAttribute
+        raise InvalidAttribute(f"{device_id}.{attr_name}")
 
     async def set_event_url(self, event_url: str):
         """Set the URL that Hubitat will POST events to."""

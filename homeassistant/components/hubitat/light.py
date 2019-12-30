@@ -13,49 +13,29 @@ from homeassistant.components.light import (
     Light,
 )
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.helpers.typing import HomeAssistantType
+from homeassistant.core import HomeAssistant
 from homeassistant.util import color as color_util
 
 from .const import DOMAIN
 from .device import HubitatDevice
 from .hubitat import (
-    CAPABILITY_COLOR_CONTROL,
-    CAPABILITY_COLOR_TEMP,
-    CAPABILITY_SWITCH_LEVEL,
-    COMMAND_ON,
-    COMMAND_SET_COLOR,
-    COMMAND_SET_COLOR_TEMP,
-    COMMAND_SET_HUE,
-    COMMAND_SET_LEVEL,
-    COMMAND_SET_SAT,
+    CAP_COLOR_CONTROL,
+    CAP_COLOR_TEMP,
+    CAP_SWITCH_LEVEL,
+    CMD_ON,
+    CMD_SET_COLOR,
+    CMD_SET_COLOR_TEMP,
+    CMD_SET_HUE,
+    CMD_SET_LEVEL,
+    CMD_SET_SAT,
     HubitatHub,
 )
 
 _LOGGER = getLogger(__name__)
 
 
-async def async_setup_entry(
-    hass: HomeAssistantType, entry: ConfigEntry, async_add_entities,
-):
-    """Initialize light devices."""
-    hub: HubitatHub = hass.data[DOMAIN][entry.entry_id].hub
-    lights = [HubitatLight(hub, d) for d in hub.devices if _is_light(d)]
-    async_add_entities(lights)
-    _LOGGER.debug(f"Added entities for lights: {lights}")
-
-
-LIGHT_CAPABILITIES = ["SwitchLevel", "ColorControl"]
-
-
-def _is_light(device):
-    """Return true if device is a light."""
-    return any(cap in device["capabilities"] for cap in LIGHT_CAPABILITIES)
-
-
 class HubitatLight(HubitatDevice, Light):
     """Representation of a Hubitat light."""
-
-    should_poll = False
 
     @property
     def brightness(self):
@@ -80,7 +60,6 @@ class HubitatLight(HubitatDevice, Light):
     @property
     def is_on(self):
         """Return True if the light is on."""
-        _LOGGER.debug(f"Checking if light {self.name} is on")
         return self._get_attr("switch") == "on"
 
     @property
@@ -89,25 +68,14 @@ class HubitatLight(HubitatDevice, Light):
         features = 0
         caps = self._device["capabilities"]
 
-        if CAPABILITY_COLOR_CONTROL in caps:
+        if CAP_COLOR_CONTROL in caps:
             features |= SUPPORT_COLOR
-        if CAPABILITY_COLOR_TEMP in caps:
+        if CAP_COLOR_TEMP in caps:
             features |= SUPPORT_COLOR_TEMP
-        if CAPABILITY_SWITCH_LEVEL in caps:
+        if CAP_SWITCH_LEVEL in caps:
             features |= SUPPORT_BRIGHTNESS
 
         return features
-
-    @property
-    def device_info(self):
-        """Return the device info."""
-        return {
-            "identifiers": {(DOMAIN, self.device_id)},
-            "name": self.name,
-            "manufacturer": "Hubitat",
-            "model": self.type,
-            "via_device": (DOMAIN, self._hub.id),
-        }
 
     def supports_feature(self, feature):
         """Return True if light supports a given feature."""
@@ -136,33 +104,49 @@ class HubitatLight(HubitatDevice, Light):
 
         if "level" in props:
             if "time" in props:
-                await self._send_command(
-                    COMMAND_SET_LEVEL, props["level"], props["time"]
-                )
+                await self._send_command(CMD_SET_LEVEL, props["level"], props["time"])
                 del props["time"]
             elif "hue" in props:
                 await self._send_command(
-                    COMMAND_SET_COLOR, props["hue"], props["sat"], props["level"]
+                    CMD_SET_COLOR, props["hue"], props["sat"], props["level"]
                 )
                 del props["hue"]
                 del props["sat"]
             else:
-                await self._send_command(COMMAND_SET_LEVEL, props["level"])
+                await self._send_command(CMD_SET_LEVEL, props["level"])
 
             del props["level"]
         else:
-            await self._send_command(COMMAND_ON)
+            await self._send_command(CMD_ON)
 
         if "hue" in props:
-            await self._send_command(COMMAND_SET_HUE, props["hue"])
-            await self._send_command(COMMAND_SET_SAT, props["sat"])
+            await self._send_command(CMD_SET_HUE, props["hue"])
+            await self._send_command(CMD_SET_SAT, props["sat"])
             del props["hue"]
             del props["sat"]
 
         if "temp" in props:
-            await self._send_command(COMMAND_SET_COLOR_TEMP, props["temp"])
+            await self._send_command(CMD_SET_COLOR_TEMP, props["temp"])
 
     async def async_turn_off(self, **kwargs):
         """Turn off the light."""
         _LOGGER.debug(f"Turning off {self.name}")
         await self._send_command("off")
+
+
+LIGHT_CAPABILITIES = ["SwitchLevel", "ColorControl"]
+
+
+def _is_light(device):
+    """Return True if device looks like a light."""
+    return any(cap in device["capabilities"] for cap in LIGHT_CAPABILITIES)
+
+
+async def async_setup_entry(
+    hass: HomeAssistant, entry: ConfigEntry, async_add_entities,
+):
+    """Initialize light devices."""
+    hub: HubitatHub = hass.data[DOMAIN][entry.entry_id].hub
+    lights = [HubitatLight(hub=hub, device=d) for d in hub.devices if _is_light(d)]
+    async_add_entities(lights)
+    _LOGGER.debug(f"Added entities for lights: {lights}")
