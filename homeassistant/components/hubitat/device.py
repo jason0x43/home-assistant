@@ -44,7 +44,7 @@ class HubitatDevice(Entity):
         """Fetch new data for this device."""
         await self._hub.refresh_device(self.device_id)
 
-    def async_will_remove_from_hass(self):
+    async def async_will_remove_from_hass(self):
         """Run when entity will be removed from hass."""
         self._hub.remove_device_listeners(self.device_id)
 
