@@ -65,7 +65,7 @@ _CONTACT_MATCHERS = (
 
 def _get_contact_device_class(device: Dict[str, Any]):
     """Guess the type of contact sensor from the device's label."""
-    label = device["device"]["label"]
+    label = device["label"]
 
     for matcher in _CONTACT_MATCHERS:
         if matcher[0].match(label):

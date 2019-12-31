@@ -42,14 +42,20 @@ ATTRIBUTE_SCHEMA = vol.Schema(
     {
         "name": str,
         "dataType": vol.Any(str, None),
-        vol.Optional("currentValue"): vol.Any(str, int, float),
+        "currentValue": vol.Any(str, int, float, None),
         vol.Optional("values"): vol.Any([str], [int]),
     },
     required=True,
 )
 
 CAPABILITY_SCHEMA = vol.Schema(
-    vol.Any(str, vol.Schema({"attributes": [ATTRIBUTE_SCHEMA]}, required=True,),)
+    vol.Any(
+        str,
+        vol.Schema(
+            {"attributes": [{"name": str, "dataType": vol.Any(str, None)}]},
+            required=True,
+        ),
+    )
 )
 
 DEVICE_INFO_SCHEMA = vol.Schema(

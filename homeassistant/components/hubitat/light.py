@@ -1,6 +1,7 @@
 """Support for Hubitat lights."""
 
 from logging import getLogger
+import re
 
 from homeassistant.components.light import (
     ATTR_BRIGHTNESS,
@@ -21,6 +22,7 @@ from .device import HubitatDevice
 from .hubitat import (
     CAP_COLOR_CONTROL,
     CAP_COLOR_TEMP,
+    CAP_SWITCH,
     CAP_SWITCH_LEVEL,
     CMD_ON,
     CMD_SET_COLOR,
@@ -134,12 +136,20 @@ class HubitatLight(HubitatDevice, Light):
         await self._send_command("off")
 
 
-LIGHT_CAPABILITIES = ["SwitchLevel", "ColorControl"]
+LIGHT_CAPABILITIES = (CAP_COLOR_TEMP, CAP_COLOR_CONTROL)
+POSSIBLE_LIGHT_CAPABILITIES = (CAP_SWITCH, CAP_SWITCH_LEVEL)
+MATCH_LIGHT = re.compile(r".*\b(light|lamp|chandelier)s?\b.*", re.IGNORECASE)
 
 
 def _is_light(device):
     """Return True if device looks like a light."""
-    return any(cap in device["capabilities"] for cap in LIGHT_CAPABILITIES)
+    if any(cap in device["capabilities"] for cap in LIGHT_CAPABILITIES):
+        return True
+    if any(
+        cap in device["capabilities"] for cap in POSSIBLE_LIGHT_CAPABILITIES
+    ) and MATCH_LIGHT.match(device["label"]):
+        return True
+    return False
 
 
 async def async_setup_entry(
