@@ -216,6 +216,11 @@ class DysonPureCoolLinkDevice(FanEntity):
         """Return the display name of this fan."""
         return self._device.name
 
+    @property
+    def unique_id(self):
+        """Return the sensor's unique id."""
+        return f"{self._device.serial}-fan"
+
     def set_speed(self, speed: str) -> None:
         """Set the speed of the fan. Never called ??."""
         _LOGGER.debug("Set fan speed to: %s", speed)
@@ -365,6 +370,11 @@ class DysonPureCoolDevice(FanEntity):
     def name(self):
         """Return the display name of this fan."""
         return self._device.name
+
+    @property
+    def unique_id(self):
+        """Return the sensor's unique id."""
+        return f"{self._device.serial}-fan"
 
     def turn_on(self, speed: str = None, **kwargs) -> None:
         """Turn on the fan."""
